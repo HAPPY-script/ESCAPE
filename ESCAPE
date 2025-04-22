@@ -166,9 +166,9 @@ local function monitorHealth(character)
 
 		if isStickingToPortal then return end -- Đừng can thiệp nếu đang ở PortalEye
 
-		if healthRatio <= 0.3 and health > 0 and not isLungingUp and not isHolding then
+		if healthRatio <= 0.35 and health > 0 and not isLungingUp and not isHolding then
 			performLungeUp(character)
-		elseif healthRatio > 0.3 and (isLungingUp or isHolding) then
+		elseif healthRatio > 0.35 and (isLungingUp or isHolding) then
 			isLungingUp = false
 			isHolding = false
 			performLungeDown(character)
