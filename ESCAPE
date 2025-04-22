@@ -1,0 +1,131 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local lungeSpeed = 10000
+local minSpeed = 300
+local stopDistance = 10
+local slowDownDistance = 500
+local lungeHeight = 60000 -- 60km
+
+local isLungingUp = false
+local isLungingDown = false
+local isHolding = false
+local originalPosition = nil
+
+-- Kiểm tra PortalEye
+local function isPortalEyeValid()
+	local portal = Workspace:FindFirstChild("_WorldOrigin") and
+		Workspace._WorldOrigin:FindFirstChild("VArenaDimension") and
+		Workspace._WorldOrigin.VArenaDimension:FindFirstChild("StageEffects") and
+		Workspace._WorldOrigin.VArenaDimension.StageEffects:FindFirstChild("PortalEye")
+
+	if portal and portal:IsA("BasePart") then
+		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			local distance = (hrp.Position - portal.Position).Magnitude
+			if distance <= 10000 then -- Nếu ở gần thì giữ lại
+				return portal
+			end
+		end
+	end
+	return nil
+end
+
+-- Lướt lên cao
+local function performLungeUp(character)
+	local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+	isLungingUp = true
+	originalPosition = humanoidRootPart.Position
+
+	while isLungingUp and humanoidRootPart.Position.Y < lungeHeight do
+		if isPortalEyeValid() then
+			isLungingUp = false
+			return
+		end
+		local step = lungeSpeed * RunService.Heartbeat:Wait()
+		humanoidRootPart.CFrame = humanoidRootPart.CFrame + Vector3.new(0, step, 0)
+	end
+
+	-- Đạt độ cao, giữ vị trí
+	if humanoidRootPart.Position.Y >= lungeHeight then
+		isHolding = true
+		while isHolding do
+			if isPortalEyeValid() then
+				isHolding = false
+				return
+			end
+			task.wait(0.2)
+		end
+	end
+end
+
+-- Lướt xuống
+local function performLungeDown(character)
+	local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+	if originalPosition then
+		isLungingDown = true
+		local targetPosition = originalPosition + Vector3.new(0, 700, 0)
+
+		while isLungingDown do
+			if isPortalEyeValid() then
+				isLungingDown = false
+				return
+			end
+
+			local currentPosition = humanoidRootPart.Position
+			local direction = (targetPosition - currentPosition).Unit
+			local distance = (targetPosition - currentPosition).Magnitude
+
+			if distance <= stopDistance then
+				humanoidRootPart.CFrame = CFrame.new(targetPosition)
+				break
+			end
+
+			local currentSpeed = lungeSpeed
+			if distance < slowDownDistance then
+				currentSpeed = math.max(minSpeed, lungeSpeed * (distance / slowDownDistance))
+			end
+
+			local step = currentSpeed * RunService.Heartbeat:Wait()
+			humanoidRootPart.CFrame = humanoidRootPart.CFrame + (direction * step)
+		end
+
+		isLungingDown = false
+		originalPosition = nil
+	end
+end
+
+-- Theo dõi máu
+local function monitorHealth(character)
+	local humanoid = character:WaitForChild("Humanoid")
+
+	humanoid.HealthChanged:Connect(function(health)
+		local healthRatio = health / humanoid.MaxHealth
+
+		if healthRatio <= 0.3 and health > 0 and not isLungingUp and not isHolding then
+			performLungeUp(character)
+		elseif healthRatio > 0.3 and (isLungingUp or isHolding) then
+			isLungingUp = false
+			isHolding = false
+			performLungeDown(character)
+		end
+	end)
+end
+
+-- Khi nhân vật được tạo lại
+local function onCharacterAdded(character)
+	task.wait(1)
+	isLungingUp = false
+	isLungingDown = false
+	isHolding = false
+	originalPosition = nil
+	monitorHealth(character)
+end
+
+-- Bắt đầu
+player.CharacterAdded:Connect(onCharacterAdded)
+if player.Character then
+	onCharacterAdded(player.Character)
+end
