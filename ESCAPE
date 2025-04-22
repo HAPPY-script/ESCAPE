@@ -7,7 +7,7 @@ local lungeSpeed = 10000
 local minSpeed = 300
 local stopDistance = 10
 local slowDownDistance = 500
-local lungeHeight = 60000
+local lungeHeight = 50000
 
 local isLungingUp = false
 local isLungingDown = false
