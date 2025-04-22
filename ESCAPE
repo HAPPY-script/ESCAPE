@@ -7,53 +7,111 @@ local lungeSpeed = 10000
 local minSpeed = 300
 local stopDistance = 10
 local slowDownDistance = 500
-local lungeHeight = 60000 -- 60km
+local lungeHeight = 60000
 
 local isLungingUp = false
 local isLungingDown = false
 local isHolding = false
+local isStickingToPortal = false
 local originalPosition = nil
 
 -- Kiểm tra PortalEye
-local function isPortalEyeValid()
-	local portal = Workspace:FindFirstChild("_WorldOrigin") and
-		Workspace._WorldOrigin:FindFirstChild("VArenaDimension") and
-		Workspace._WorldOrigin.VArenaDimension:FindFirstChild("StageEffects") and
-		Workspace._WorldOrigin.VArenaDimension.StageEffects:FindFirstChild("PortalEye")
+local function getPortalEye()
+	local portal = Workspace:FindFirstChild("_WorldOrigin")
+		and Workspace._WorldOrigin:FindFirstChild("VArenaDimension")
+		and Workspace._WorldOrigin.VArenaDimension:FindFirstChild("StageEffects")
+		and Workspace._WorldOrigin.VArenaDimension.StageEffects:FindFirstChild("PortalEye")
 
 	if portal and portal:IsA("BasePart") then
 		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		if hrp then
 			local distance = (hrp.Position - portal.Position).Magnitude
-			if distance <= 10000 then -- Nếu ở gần thì giữ lại
-				return portal
+			if distance <= 10000 then
+				return portal, distance
 			end
 		end
 	end
 	return nil
 end
 
--- Lướt lên cao
+-- Bám dính tại PortalEye
+local function stickToPortal(portal)
+	local character = player.Character
+	if not character then return end
+	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+	if not humanoidRootPart then return end
+
+	isStickingToPortal = true
+	isLungingUp = false
+	isLungingDown = false
+	isHolding = false
+
+	while isStickingToPortal do
+		local currentPortal, distance = getPortalEye()
+		if not currentPortal or distance > 10000 then
+			isStickingToPortal = false
+			break
+		end
+
+		local offset = Vector3.new(0, 10, 0) -- Đứng trên Portal một chút
+		humanoidRootPart.CFrame = CFrame.new(currentPortal.Position + offset)
+		task.wait(0.1)
+	end
+end
+
+-- Lướt tới PortalEye
+local function dashToPortal(portal)
+	local character = player.Character
+	if not character then return end
+	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+	if not humanoidRootPart then return end
+
+	local targetPosition = portal.Position + Vector3.new(0, 10, 0)
+
+	while true do
+		local currentPosition = humanoidRootPart.Position
+		local direction = (targetPosition - currentPosition).Unit
+		local distance = (targetPosition - currentPosition).Magnitude
+
+		if distance <= stopDistance then
+			break
+		end
+
+		local currentSpeed = lungeSpeed
+		if distance < slowDownDistance then
+			currentSpeed = math.max(minSpeed, lungeSpeed * (distance / slowDownDistance))
+		end
+
+		humanoidRootPart.CFrame = humanoidRootPart.CFrame + (direction * currentSpeed * RunService.Heartbeat:Wait())
+	end
+
+	stickToPortal(portal)
+end
+
+-- Lướt lên
 local function performLungeUp(character)
 	local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 	isLungingUp = true
 	originalPosition = humanoidRootPart.Position
 
 	while isLungingUp and humanoidRootPart.Position.Y < lungeHeight do
-		if isPortalEyeValid() then
+		local portal = getPortalEye()
+		if portal then
 			isLungingUp = false
+			dashToPortal(portal)
 			return
 		end
+
 		local step = lungeSpeed * RunService.Heartbeat:Wait()
 		humanoidRootPart.CFrame = humanoidRootPart.CFrame + Vector3.new(0, step, 0)
 	end
 
-	-- Đạt độ cao, giữ vị trí
 	if humanoidRootPart.Position.Y >= lungeHeight then
 		isHolding = true
 		while isHolding do
-			if isPortalEyeValid() then
+			if getPortalEye() then
 				isHolding = false
+				dashToPortal(getPortalEye())
 				return
 			end
 			task.wait(0.2)
@@ -69,8 +127,10 @@ local function performLungeDown(character)
 		local targetPosition = originalPosition + Vector3.new(0, 700, 0)
 
 		while isLungingDown do
-			if isPortalEyeValid() then
+			local portal = getPortalEye()
+			if portal then
 				isLungingDown = false
+				dashToPortal(portal)
 				return
 			end
 
@@ -104,6 +164,8 @@ local function monitorHealth(character)
 	humanoid.HealthChanged:Connect(function(health)
 		local healthRatio = health / humanoid.MaxHealth
 
+		if isStickingToPortal then return end -- Đừng can thiệp nếu đang ở PortalEye
+
 		if healthRatio <= 0.3 and health > 0 and not isLungingUp and not isHolding then
 			performLungeUp(character)
 		elseif healthRatio > 0.3 and (isLungingUp or isHolding) then
@@ -114,12 +176,13 @@ local function monitorHealth(character)
 	end)
 end
 
--- Khi nhân vật được tạo lại
+-- Khi nhân vật xuất hiện
 local function onCharacterAdded(character)
 	task.wait(1)
 	isLungingUp = false
 	isLungingDown = false
 	isHolding = false
+	isStickingToPortal = false
 	originalPosition = nil
 	monitorHealth(character)
 end
